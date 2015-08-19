@@ -43,7 +43,7 @@ if [ -f /opt/jboss/fuse/bin/karaf ]; then
 elif [ -f /opt/jboss/fuse/bin/run ]; then
 
   echo "Executing /opt/jboss/fuse/bin/run ..."
-  if [ -z "${JVM_ARGS} ]; then
+  if [ -z "${JVM_ARGS}" ]; then
     JVM_ARGS="$(jolokia_opts)"
   fi
   /opt/jboss/fuse/bin/run
