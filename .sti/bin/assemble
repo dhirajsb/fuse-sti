@@ -1,0 +1,151 @@
+#!/bin/bash
+
+DEFAULT_KARAF4_MAVEN_ARGS="install karaf:assembly karaf:archive -DskipTests -e"
+DEFAULT_HAWT_APP_MAVEN_ARGS="package hawt-app:build -DskipTests -e"
+
+# restore maven dependencies downloaded in a previous build,
+# so they do not have to be downloaded again.
+# /tmp/artifacts will only be present in the incremental build scenario
+# in which the target image name is an existing docker image which contains
+# dependencies from a prior build execution.
+function restore_saved_artifacts() {
+  if [ -d /tmp/artifacts/ ]; then
+    echo -n "Restoring saved artifacts from prior build..."
+    mv /tmp/artifacts/.m2 ${HOME}/.
+  else 
+    echo -n "Can't find saved artifacts. Ignoring..."
+  fi
+}
+
+# echo error message and exit with error code
+function error_exit() {
+  echo $1
+  if [ -z "$2" ]; then
+    exit 1
+  fi
+  exit $2
+}
+
+# determine project assembly type from ${OUTPUT_DIR}/pom.xml
+# project should either produce a karaf4 assembly *.tar.gz or a hawt-app *.tar.gz
+function get_assembly_type() {
+  # check if an assembly pom.xml exists
+  ASSEMBLY_POM_XML="$(dirname ${OUTPUT_DIR})/pom.xml"
+  if [ -f ${ASSEMBLY_POM_XML} ]; then
+    error_exit "Missing ${ASSEMBLY_POM_XML} in maven project"
+  fi
+
+  # search for supported assembly plugin artifactId
+  if grep -qE "<artifactId\s*>karaf-maven-plugin<\/artifactId\s*>" ${ASSEMBLY_POM_XML}; then
+
+    # project is a karaf4 assembly type
+    FUSE_ASSEMBLY_TYPE=karaf4
+
+  elif grep -qE "<artifactId\s*>hawt-app-maven-plugin<\/artifactId\s*>" ${ASSEMBLY_POM_XML}; then
+
+    # project is a hawt-app assembly type
+    FUSE_ASSEMBLY_TYPE=hawt-app
+
+  else
+    error_exit "Unrecognized project type, missing karaf-maven-plugin or hawt-app-maven-plugin in ${ASSEMBLY_POM_XML}"
+  fi
+}
+
+# Source code provided to STI is at ${HOME}/source
+LOCAL_SOURCE_DIR=${HOME}/source
+mkdir -p ${LOCAL_SOURCE_DIR}
+
+# The dir that contains the build output
+if [ -z "${OUTPUT_DIR}" ]; then
+  OUTPUT_DIR="${LOCAL_SOURCE_DIR}/target"
+elif [[ ${OUTPUT_DIR} != /* ]]; then
+  OUTPUT_DIR="${LOCAL_SOURCE_DIR}/${OUTPUT_DIR}"
+fi
+
+# Output will result in /opt/jboss folder
+DEPLOY_DIR=/opt/jboss
+mkdir -p ${DEPLOY_DIR}
+
+# Copy the source for compilation
+cp -ad /tmp/src/* ${LOCAL_SOURCE_DIR}
+
+# If a pom.xml is present, this is a normal build scenario
+# so run maven.
+if [ -f "${LOCAL_SOURCE_DIR}/pom.xml" ]; then
+
+  # restore any maven dependencies which will be present if this is an
+  # incremental build
+  restore_saved_artifacts
+
+  pushd ${LOCAL_SOURCE_DIR} &> /dev/null
+  JAVA_HOME=/etc/alternatives/java_sdk_1.7.0
+
+  # determine assembly type
+  get_assembly_type
+
+  # set default maven args if not set
+  if [ -z "${MAVEN_ARGS}" ]; then
+    if [ "${FUSE_ASSEMBLY_TYPE}" = "karaf4" ]; then
+      MAVEN_ARGS=${DEFAULT_KARAF4_MAVEN_ARGS}
+    else
+      MAVEN_ARGS=${DEFAULT_HAWT_APP_MAVEN_ARGS}
+    fi
+  fi
+
+  echo "Found pom.xml... attempting to build with 'mvn ${MAVEN_ARGS}'"
+
+  mvn --version
+  mvn ${MAVEN_ARGS} ${MAVEN_DEBUG_ARGS}
+
+  ERR=$?
+  if [ ${ERR} -ne 0 ]; then
+    error_exit "Aborting due to error code ${ERR} from mvn command" ${ERR}
+  fi
+
+  echo "Copying built artifacts from ${OUTPUT_DIR} into ${DEPLOY_DIR}..."
+  popd &> /dev/null
+else
+  if [ -z "${OUTPUT_DIR}" ]; then
+    OUTPUT_DIR="${LOCAL_SOURCE_DIR}"
+  fi
+  echo "Copying binaries in source directory into ${DEPLOY_DIR}..."
+fi
+
+# locate fuse assembly
+if [ -z "${FUSE_ASSEMBLY}" ]; then
+  if [ ! -d "${OUTPUT_DIR}" ]; then
+    error_exit "Missing directory ${OUTPUT_DIR}"
+  fi
+  pushd ${OUTPUT_DIR} &> /dev/null
+  # there should be only one *.tar.gz in ${OUTPUT_DIR}
+  FUSE_ASSEMBLY=`ls -1 *.tar.gz`
+  if [ ! -f ${FUSE_ASSEMBLY} ]; then
+    error_exit "Missing assembly archive file *-app.tar.gz in ${OUTPUT_DIR}"
+  fi
+  popd &> /dev/null
+fi
+FUSE_ASSEMBLY_ARCHIVE=${OUTPUT_DIR}/${FUSE_ASSEMBLY}
+if [ ! -f "${FUSE_ASSEMBLY_ARCHIVE}" ]; then
+  error_exit "Missing assembly archive file ${FUSE_ASSEMBLY_ARCHIVE}"
+fi
+
+# extract custom assembly to DEPLOY_DIR
+tar xzf "$FUSE_ASSEMBLY_ARCHIVE" -C /opt/jboss
+FUSE_ASSEMBLY_DIR=${FUSE_ASSEMBLY_ARCHIVE%.tar.gz}
+ln -s "${DEPLOY_DIR}/${FUSE_ASSEMBLY_DIR##*/}" "${DEPLOY_DIR}/fuse"
+
+# cleanup maven build artifacts to reduce image size
+if [ -f "${LOCAL_SOURCE_DIR}/pom.xml" ]; then
+  echo "Cleaning up maven build artifacts using mvn clean..."
+  pushd ${LOCAL_SOURCE_DIR} &> /dev/null
+  mvn clean
+  popd
+fi
+
+# karaf4 specific config
+if [ -f /opt/jboss/fuse/bin/karaf ]; then
+  # send log output to stdout
+  sed -i 's/^\(.*rootLogger.*\)out/\1stdout/' /opt/jboss/karaf/etc/org.ops4j.pax.logging.cfg
+fi
+
+echo "...done!"
