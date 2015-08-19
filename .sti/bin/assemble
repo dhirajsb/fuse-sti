@@ -145,7 +145,7 @@ fi
 # karaf4 specific config
 if [ -f /opt/jboss/fuse/bin/karaf ]; then
   # send log output to stdout
-  sed -i 's/^\(.*rootLogger.*\)out/\1stdout/' /opt/jboss/karaf/etc/org.ops4j.pax.logging.cfg
+  sed -i 's/^\(.*rootLogger.*\)out/\1stdout/' /opt/jboss/fuse/etc/org.ops4j.pax.logging.cfg
 fi
 
 echo "...done!"
