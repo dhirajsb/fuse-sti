@@ -31,7 +31,7 @@ function error_exit() {
 function get_assembly_type() {
   # check if an assembly pom.xml exists
   ASSEMBLY_POM_XML="$(dirname ${OUTPUT_DIR})/pom.xml"
-  if [ -f ${ASSEMBLY_POM_XML} ]; then
+  if [ ! -f "${ASSEMBLY_POM_XML}" ]; then
     error_exit "Missing ${ASSEMBLY_POM_XML} in maven project"
   fi
 
@@ -119,7 +119,7 @@ if [ -z "${FUSE_ASSEMBLY}" ]; then
   pushd ${OUTPUT_DIR} &> /dev/null
   # there should be only one *.tar.gz in ${OUTPUT_DIR}
   FUSE_ASSEMBLY=`ls -1 *.tar.gz`
-  if [ ! -f ${FUSE_ASSEMBLY} ]; then
+  if [ ! -f "${FUSE_ASSEMBLY}" ]; then
     error_exit "Missing assembly archive file *-app.tar.gz in ${OUTPUT_DIR}"
   fi
   popd &> /dev/null
