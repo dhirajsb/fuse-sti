@@ -37,14 +37,16 @@ if [ -f /opt/jboss/fuse/bin/karaf ]; then
   echo "Executing /opt/jboss/fuse/bin/karaf server ..."
   if [ -z "${KARAF_OPTS}" ]; then
     KARAF_OPTS=$(jolokia_opts)
+    export KARAF_OPTS
   fi
   /opt/jboss/fuse/bin/karaf server
 
 elif [ -f /opt/jboss/fuse/bin/run ]; then
 
   echo "Executing /opt/jboss/fuse/bin/run ..."
-  if [ -z "${JVM_ARGS}" ]; then
-    JVM_ARGS="$(jolokia_opts)"
+  if [ -z "${JVM_AGENT}" ]; then
+    JVM_AGENT="$(jolokia_opts)"
+    export JVM_AGENT
   fi
   /opt/jboss/fuse/bin/run
 
